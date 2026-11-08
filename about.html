@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How the bicarbonate recovery model was built</title>
+<meta name="description" content="Development, validation and verification of the bicarbonate recovery failure model shown in the calculator.">
+<style>
+:root{--ink:#1f2733;--muted:#5b6b80;--line:#e3e8ef;--brand:#2b6cb0;--bg:#f6f8fb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.72 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:34px 22px 60px}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
+h1{font-size:24px;line-height:1.35;margin:0 0 8px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 22px;font-size:14.5px}
+h2{font-size:17px;margin:34px 0 10px;padding-top:6px}
+h3{font-size:14.5px;margin:20px 0 6px;color:#2d3748}
+p{margin:0 0 12px}
+ul{margin:0 0 12px;padding-left:20px}
+li{margin:0 0 6px}
+code{background:#eef2f7;padding:1px 5px;border-radius:3px;font-size:12.8px;
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+pre{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font-size:12.8px;line-height:1.6;
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:13.5px;background:#fff;
+  border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+th{background:#f0f4f9;font-weight:600;color:#2d3748;font-size:12.8px}
+tr:last-child td{border-bottom:none}
+td.num{font-variant-numeric:tabular-nums}
+.note{background:#fff8e6;border-left:3px solid #d69e2e;border-radius:4px;
+  padding:11px 14px;color:#7a5c12;font-size:13.5px;margin:14px 0}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;font-size:13px}
+.top a{margin-left:14px}
+hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+.foot{color:var(--muted);font-size:12.5px;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <a href="index.html">&larr; Back to the calculator</a>
+    <span><a href="#verify">Verification</a><a href="#limits">Limitations</a><a href="#cite">Cite</a></span>
+  </div>
+
+  <h1>How the bicarbonate recovery model was built</h1>
+  <p class="sub">Development, external validation and independent verification of the model behind the calculator.</p>
+
+  <h2>What the calculator estimates</h2>
+  <p>The predicted probability that a patient admitted to intensive care with a high anion gap and a low serum bicarbonate will still have a bicarbonate below 22&nbsp;mmol/L at 24&ndash;48&nbsp;h. In other words, it estimates <b>failure to recover</b>, not the anion gap itself and not mortality.</p>
+  <p>The cross-classification that motivates the tool is the discordance between anion gap load and bicarbonate recovery. Patients were grouped by whether the anion gap stayed high or fell, and by whether bicarbonate recovered or not. The four resulting groups carry markedly different 28-day mortality, and neither dimension alone reproduces that gradient.</p>
+
+  <h2>Who the model applies to</h2>
+  <ul>
+    <li>Adults aged 18 years or older, admitted to an intensive care unit.</li>
+    <li>Suspected infection treated with antibacterial therapy, that is, a sepsis admission.</li>
+    <li>Anion gap at or above 20&nbsp;mmol/L in the first 12&nbsp;h.</li>
+    <li>Bicarbonate below 22&nbsp;mmol/L at baseline.</li>
+  </ul>
+  <p>Outside these bounds the estimate is either withheld or flagged. A bicarbonate of 22&nbsp;mmol/L or above returns a statement that the patient lies outside the scope of the model rather than a number.</p>
+
+  <h2>Predictors and encoding</h2>
+  <p>Seven values measured in the first 12&nbsp;h are turned into nine model features.</p>
+  <table>
+    <tr><th>Feature</th><th>Source</th><th>Encoding</th></tr>
+    <tr><td><code>age</code></td><td>Age</td><td>years</td></tr>
+    <tr><td><code>male</code></td><td>Sex</td><td>1 male, 0 female</td></tr>
+    <tr><td><code>sev_z</code></td><td>SOFA score</td><td>(SOFA &minus; 4.0638) / 2.243</td></tr>
+    <tr><td><code>ag12</code></td><td>Anion gap</td><td>mmol/L, first value</td></tr>
+    <tr><td><code>bi0</code></td><td>Bicarbonate</td><td>mmol/L, first value</td></tr>
+    <tr><td><code>lac12</code></td><td>Lactate</td><td>mmol/L, maximum 0&ndash;12&nbsp;h</td></tr>
+    <tr><td><code>cr12</code></td><td>Creatinine</td><td>mg/dL, maximum 0&ndash;12&nbsp;h</td></tr>
+    <tr><td><code>lac_miss</code></td><td>Lactate missing</td><td>1 if missing; lactate then set to 2.4</td></tr>
+    <tr><td><code>cr_miss</code></td><td>Creatinine missing</td><td>1 if missing; creatinine then set to 1.45</td></tr>
+  </table>
+  <p>Missing lactate and creatinine are replaced by the development-cohort median with the indicator switched on, exactly as during training. No patient is excluded for a missing predictor.</p>
+
+  <h2>The model</h2>
+  <p>Extreme gradient boosting with a logistic objective. A maximum of 800 rounds, learning rate 0.03, maximum depth 3, subsample and column-subsample fraction 0.8, minimum child weight 20 and an L2 penalty of 2. The number of rounds was chosen by 5-fold cross-validation with early stopping after 50 rounds without improvement, which selected <b>310 trees</b>. No class weighting was applied.</p>
+  <p>Two comparison models were fitted with the same nine features: L2-penalised logistic regression with the acid&ndash;base terms, and a clinical base model restricted to the seven clinical predictors without the acid&ndash;base terms.</p>
+  <p>Analysis used R 4.6.1 and Python 3.13. Two-sided P values below 0.05 were taken to indicate low compatibility with the null rather than a definitive threshold.</p>
+
+  <h2>Development and validation cohorts</h2>
+  <table>
+    <tr><th>Cohort</th><th class="num">Patients</th><th class="num">Events</th><th class="num">Prevalence</th><th>Role</th></tr>
+    <tr><td>MIMIC-IV</td><td class="num">10,304</td><td class="num">6,567</td><td class="num">63.7%</td><td>Development</td></tr>
+    <tr><td>eICU-CRD</td><td class="num">3,602</td><td class="num">2,193</td><td class="num">60.9%</td><td>External</td></tr>
+    <tr><td>SICdb</td><td class="num">3,821</td><td class="num">1,491</td><td class="num">39.0%</td><td>External</td></tr>
+    <tr><td>NWICU</td><td class="num">5,864</td><td class="num">2,978</td><td class="num">50.8%</td><td>External</td></tr>
+  </table>
+
+  <h2>Performance</h2>
+  <table>
+    <tr><th>Cohort</th><th class="num">AUC (95% CI)</th><th class="num">Brier</th><th class="num">Sensitivity</th><th class="num">Specificity</th></tr>
+    <tr><td>MIMIC-IV</td><td class="num">0.780 (0.771&ndash;0.789)</td><td class="num">0.181</td><td class="num">0.644</td><td class="num">0.772</td></tr>
+    <tr><td>eICU-CRD</td><td class="num">0.683 (0.666&ndash;0.701)</td><td class="num">0.220</td><td class="num">0.618</td><td class="num">0.659</td></tr>
+    <tr><td>SICdb</td><td class="num">0.731 (0.715&ndash;0.747)</td><td class="num">0.206</td><td class="num">0.628</td><td class="num">0.713</td></tr>
+    <tr><td>NWICU</td><td class="num">0.719 (0.706&ndash;0.732)</td><td class="num">0.229</td><td class="num">0.662</td><td class="num">0.672</td></tr>
+  </table>
+  <p>Sensitivity and specificity are given at the cohort-specific Youden-optimal cut-point. Discrimination transports across databases better than absolute risk. Calibration intercepts and slopes indicated that predicted probabilities were too high in all three external cohorts, and a local logistic recalibration was required before any net-benefit calculation, which is why the tool reports a band as well as a probability.</p>
+
+  <h2>Reading the bands</h2>
+  <p>The cut-points 0.53 and 0.77 are tertiles of predicted probability in the development cohort. Observed failure to recover in the three bands was 37.5%, 64.6% and 89.0%. A band therefore locates a patient relative to the rest of the cohort. It is not an absolute risk and it does not define a treatment threshold.</p>
+
+  <h2 id="verify">Verifying a prediction</h2>
+  <p>The page evaluates the exported booster tree by tree rather than a re-implemented approximation. Two independent checks are shipped with the source archive:</p>
+  <pre>node t_check.js
+# n 60  max abs diff 6.246e-7</pre>
+  <p>Loading <code>model.json</code> directly with XGBoost 3.4.1 and predicting the same 60 rows of <code>ref_pred.csv</code> gives a maximum absolute difference of 5.0&times;10<sup>-7</sup>. The page, the JavaScript export and the fitted model object therefore agree to within 1&times;10<sup>-6</sup>. The reference values were produced by the analysis object, not by the page.</p>
+  <pre>library(xgboost)
+b &lt;- xgb.load("model.json")
+x &lt;- matrix(c(age, male, sev_z, ag12, bi0, lac12, cr12, lac_miss, cr_miss), nrow = 1)
+predict(b, x)</pre>
+
+  <h2 id="limits">Limitations</h2>
+  <div class="note"><b>Not a medical device.</b> The model was developed and validated retrospectively. It has not been tested prospectively, and it must not be used as the sole basis for a clinical decision.</div>
+  <ul>
+    <li>Absolute risk is miscalibrated outside the development cohort and requires local recalibration.</li>
+    <li>The three external databases differ in case mix, in how bicarbonate was measured and in how discharge was handled, which is visible in the prevalence range from 39% to 64%.</li>
+    <li>Recovery is defined by a single bicarbonate threshold at one time window. Patients who recover later, or who are discharged before 48&nbsp;h, are not represented well.</li>
+    <li>The model uses values available by 12&nbsp;h and does not incorporate treatment, so it cannot separate failure to recover from inadequate resuscitation.</li>
+    <li>Anion gap is used as recorded and is not albumin-corrected in the deployed model.</li>
+  </ul>
+
+  <hr>
+
+  <h2 id="cite">Citation and licence</h2>
+  <p>Discordance between anion gap load and bicarbonate recovery in sepsis: a four-database cohort study with a 12-hour prediction tool. <i>Manuscript submitted.</i></p>
+  <p>Archived record, including the model object, page source and reference predictions: <a href="hco3-recovery-calculator-v1.0.zip">download the archive (.zip, 130 kB)</a>. The same archive is deposited on Zenodo and a DOI is registered when the paper is published.</p>
+  <p>Version 1.0, 8 November 2026. Released under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
+
+  <p class="foot">The model is derived from four public critical care databases, MIMIC-IV, eICU-CRD, SICdb and NWICU, each obtained under its own data use agreement. No patient-level data are redistributed here.</p>
+
+</div>
+</body>
+</html>
